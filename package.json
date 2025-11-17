@@ -1,0 +1,23 @@
+{
+  "name": "tagarela",
+  "version": "1.0.0",
+  "author": "Paulo Renan <rennandeveloper@gmail.com>",
+  "description": "Aplicativo Vue.js 2 para Text-to-Speech com suporte a PDF e Word",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "vue": "^2.6.14",
+    "pdfjs-dist": "^2.16.105",
+    "mammoth": "^1.6.0"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue2": "^2.3.1",
+    "vite": "^5.0.0",
+    "vue-template-compiler": "^2.6.14"
+  }
+}
+
