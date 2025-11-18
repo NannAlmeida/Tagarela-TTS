@@ -202,7 +202,71 @@
               </svg>
               <span>Parar</span>
             </button>
+            <button 
+              @click="generateAudioForDownload" 
+              :disabled="!extractedText || generatingDownload"
+              class="btn btn-download-prepare">
+              <svg viewBox="0 0 24 24" fill="currentColor">
+                <path d="M5 20h14v-2H5v2zM19 9h-4V3H9v6H5l7 7 7-7z"/>
+              </svg>
+              <span v-if="!generatingDownload">Preparar Download</span>
+              <span v-else>Preparando...</span>
+            </button>
           </div>
+        </div>
+
+        <!-- Seção de Download -->
+        <div v-if="generatedAudioUrls.length > 0" class="download-section">
+          <div class="download-header">
+            <h3>Áudio Pronto para Download</h3>
+            <button @click="clearDownloads" class="btn btn-icon btn-small">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                <line x1="18" y1="6" x2="6" y2="18"></line>
+                <line x1="6" y1="6" x2="18" y2="18"></line>
+              </svg>
+            </button>
+          </div>
+          <p class="download-info">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+              <circle cx="12" cy="12" r="10"></circle>
+              <line x1="12" y1="16" x2="12" y2="12"></line>
+              <line x1="12" y1="8" x2="12.01" y2="8"></line>
+            </svg>
+            Seu áudio foi dividido em <strong>{{ generatedAudioUrls.length }} parte(s)</strong>
+            {{ generatedAudioUrls.length > 1 ? '(textos longos são divididos automaticamente)' : '' }}
+          </p>
+          <p class="download-tip">
+            💡 <strong>Dica:</strong> Se o download não iniciar automaticamente, o áudio abrirá em nova aba. 
+            Use <kbd>Ctrl+S</kbd> (ou <kbd>Cmd+S</kbd> no Mac) para salvar.
+          </p>
+          <div class="audio-files-list">
+            <div 
+              v-for="(audio, index) in generatedAudioUrls"
+              :key="index"
+              class="audio-file-item">
+              <div class="audio-file-info">
+                <span class="audio-file-number">Parte {{ index + 1 }}</span>
+                <span class="audio-file-preview">{{ audio.text }}</span>
+              </div>
+              <button 
+                @click="downloadAudio(audio.url, audio.filename)"
+                class="btn btn-small btn-download-file">
+                <svg viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M5 20h14v-2H5v2zM19 9h-4V3H9v6H5l7 7 7-7z"/>
+                </svg>
+                Baixar MP3
+              </button>
+            </div>
+          </div>
+          <button 
+            @click="downloadAll" 
+            v-if="generatedAudioUrls.length > 1"
+            class="btn btn-primary btn-download-all">
+            <svg viewBox="0 0 24 24" fill="currentColor">
+              <path d="M5 20h14v-2H5v2zM19 9h-4V3H9v6H5l7 7 7-7z"/>
+            </svg>
+            Baixar Todas as Partes
+          </button>
         </div>
 
         <div v-if="error" class="error-message">
@@ -307,7 +371,9 @@ export default {
       elapsedTime: 0,
       estimatedDuration: 0,
       timerInterval: null,
-      startTime: null
+      startTime: null,
+      generatedAudioUrls: [],
+      generatingDownload: false
     };
   },
   computed: {
@@ -1049,6 +1115,141 @@ export default {
       this.extractedText = '';
       this.error = null;
       this.errorDetails = null;
+    },
+    async generateAudioForDownload() {
+      this.addDebugLog('Gerando áudio para download', 'info', {
+        textLength: this.extractedText.length,
+        language: this.selectedLanguage
+      });
+      
+      this.generatingDownload = true;
+      this.generatedAudioUrls = [];
+      
+      try {
+        // Dividir texto em chunks (mesmo método usado para reprodução)
+        const maxLength = 200;
+        const chunks = this.splitTextIntoChunks(this.extractedText, maxLength);
+        
+        this.addDebugLog('Texto dividido em chunks', 'info', {
+          totalChunks: chunks.length
+        });
+        
+        // Gerar URLs para cada chunk
+        chunks.forEach((chunk, index) => {
+          const url = getGoogleTTSUrl(chunk, this.selectedLanguage);
+          this.generatedAudioUrls.push({
+            url,
+            filename: `tagarela-parte-${index + 1}.mp3`,
+            text: chunk.length > 50 ? chunk.substring(0, 50) + '...' : chunk
+          });
+        });
+        
+        this.addDebugLog('Áudio gerado com sucesso', 'success', {
+          totalParts: this.generatedAudioUrls.length
+        });
+        
+      } catch (error) {
+        this.addDebugLog('Erro ao gerar áudio', 'error', {
+          errorMessage: error.message
+        });
+        this.error = 'Erro ao preparar áudio para download';
+        this.errorDetails = error.message;
+      } finally {
+        this.generatingDownload = false;
+      }
+    },
+    async downloadAudio(audioUrl, filename) {
+      try {
+        this.addDebugLog('Tentando download direto', 'info', { filename });
+        
+        // Tentar método 1: Fetch com modo no-cors (limitado mas pode funcionar)
+        try {
+          const response = await fetch(audioUrl, { mode: 'no-cors' });
+          const blob = await response.blob();
+          
+          if (blob.size > 0) {
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = filename;
+            a.style.display = 'none';
+            document.body.appendChild(a);
+            a.click();
+            
+            setTimeout(() => {
+              window.URL.revokeObjectURL(url);
+              document.body.removeChild(a);
+            }, 100);
+            
+            this.addDebugLog('Download iniciado via fetch', 'success', { filename });
+            return;
+          }
+        } catch (fetchError) {
+          this.addDebugLog('Fetch falhou, tentando método alternativo', 'warning', {
+            error: fetchError.message
+          });
+        }
+        
+        // Método 2: Link direto (abre em nova aba - usuário pode salvar)
+        this.addDebugLog('Usando método alternativo: abrir em nova aba', 'info', { filename });
+        
+        const a = document.createElement('a');
+        a.href = audioUrl;
+        a.download = filename;
+        a.target = '_blank';
+        a.rel = 'noopener noreferrer';
+        a.style.display = 'none';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        
+        this.addDebugLog('Áudio aberto em nova aba', 'success', { 
+          filename,
+          message: 'Use "Salvar como" no navegador se o download não iniciar automaticamente'
+        });
+        
+        // Mostrar dica ao usuário
+        this.error = null;
+        
+      } catch (error) {
+        this.addDebugLog('Erro no download', 'error', {
+          filename,
+          error: error.message
+        });
+        this.error = 'Não foi possível baixar automaticamente. O áudio será aberto em nova aba.';
+        this.errorDetails = 'Use "Salvar como" (Ctrl/Cmd + S) no navegador para salvar o arquivo.';
+        
+        // Mesmo com erro, tentar abrir em nova aba como fallback
+        try {
+          window.open(audioUrl, '_blank', 'noopener,noreferrer');
+        } catch (openError) {
+          this.addDebugLog('Erro ao abrir em nova aba', 'error', {
+            error: openError.message
+          });
+        }
+      }
+    },
+    async downloadAll() {
+      this.addDebugLog('Baixando todas as partes', 'info', {
+        totalParts: this.generatedAudioUrls.length
+      });
+      
+      // Baixar todas as partes sequencialmente com delay
+      for (let i = 0; i < this.generatedAudioUrls.length; i++) {
+        const audio = this.generatedAudioUrls[i];
+        await this.downloadAudio(audio.url, audio.filename);
+        
+        // Delay entre downloads para não sobrecarregar
+        if (i < this.generatedAudioUrls.length - 1) {
+          await new Promise(resolve => setTimeout(resolve, 500));
+        }
+      }
+      
+      this.addDebugLog('Todos os downloads iniciados', 'success');
+    },
+    clearDownloads() {
+      this.generatedAudioUrls = [];
+      this.addDebugLog('Lista de downloads limpa', 'info');
     }
   }
 };
